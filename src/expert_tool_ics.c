@@ -105,11 +105,12 @@
      uint32_t    default_secs;                   // Auto-off seconds (if limit_runtime == true)
  } Mode;
  
- static const Mode kModes[] = {                  // Mode list (indices used elsewhere; do not reorder)
+ /* Embraco defaults — ONLY ONE CHANGE: Max 160 -> 150 (see last entry) */
+ static const Mode kModes[] = {
      {"Stand by", 0,   0,   0},                  // 0: No PWM, pin forced LOW, no timer
      {"Low speed", 55, 1, 120},                  // 1: 55 Hz PWM, LED 1 Hz, 2 minutes limit
      {"Mid speed", 100,2,  60},                  // 2: 100 Hz PWM, LED 2 Hz, 1 minute limit
-     {"Max speed", 160,4,  30},                  // 3: 160 Hz PWM, LED 4 Hz, 30 seconds limit
+     {"Max speed", 150,4,  30},                  // 3: 150 Hz PWM, LED 4 Hz, 30 seconds limit  // CHANGED
  };
  #define MODE_COUNT (sizeof(kModes)/sizeof(kModes[0])) // Compute number of entries at compile-time
  
@@ -314,7 +315,16 @@
  
      const Mode* m = &kModes[idx];                // Pointer to chosen mode descriptor
  
-     if(m->freq_hz == 0){                         // Stand by: special no-PWM mode
+     /* Minimal change: Samsung has its own frequencies; Embraco uses table as-is. */
+     uint32_t freq = m->freq_hz;                  // Start with table frequency
+     if(s->inverter == InvSamsung){               // Samsung overrides:                 // CHANGED
+         if(idx == 1)      freq = 5;              //  Low  = 5 Hz                       // CHANGED
+         else if(idx == 2) freq = 400;            //  Mid  = 400 Hz                     // CHANGED
+         else if(idx == 3) freq = 800;            //  Max  = 800 Hz                     // CHANGED
+         /* Stand by (idx == 0) remains 0 Hz */
+     }
+ 
+     if(freq == 0){                               // Stand by: special no-PWM mode
          pwm_hw_stop_safe(&s->pwm_running);       // Ensure PWM is off
          pin_to_pp_low();                         // Actively pull output LOW (safe)
          stop_timers(s);                          // Cancel any countdown
@@ -322,7 +332,7 @@
          s->timeout_expired = false;              // Clear timeout event flag
      } else {                                     // Any PWM-enabled mode
          pwm_hw_stop_safe(&s->pwm_running);       // Stop previous PWM (if any)
-         pwm_hw_start_safe(m->freq_hz, &s->pwm_running); // Start new PWM at target frequency
+         pwm_hw_start_safe(freq, &s->pwm_running);// Start new PWM at selected frequency
          start_tick_timer_if_needed(s);           // (Re)arm limit timers if configured
      }
      led_apply(s, m->led_blink_hz);               // Update LED blink to reflect activity level
@@ -878,27 +888,27 @@
      } // end while(!exit_app)
  
      /* ---------- Cleanup: return hardware and services to safe state ---------- */
-     if(s.led_timer){                            // If LED timer exists
-         furi_timer_stop(s.led_timer);           // -> stop
-         furi_timer_free(s.led_timer);           // -> free
-         s.led_timer = NULL;                     // -> clear pointer
+     if(s.led_timer){
+         furi_timer_stop(s.led_timer);
+         furi_timer_free(s.led_timer);
+         s.led_timer = NULL;
      }
-     if(s.hint_timer){                           // If hint timer exists
-         furi_timer_stop(s.hint_timer);          // -> stop
-         furi_timer_free(s.hint_timer);          // -> free
-         s.hint_timer = NULL;                    // -> clear pointer
+     if(s.hint_timer){
+         furi_timer_stop(s.hint_timer);
+         furi_timer_free(s.hint_timer);
+         s.hint_timer = NULL;
      }
-     stop_timers(&s);                            // Stop countdown timers (if any)
-     free_timers(&s);                            // Free countdown timers
-     pwm_hw_stop_safe(&s.pwm_running);           // Ensure PWM is off
-     pin_to_hiz();                               // Disconnect output
-     power_5v_set(false);                        // Force OTG 5V OFF
-     notification_message(s.notif, &sequence_reset_rgb); // Reset LEDs
-     furi_record_close(RECORD_NOTIFICATION);     // Release Notification service
+     stop_timers(&s);
+     free_timers(&s);
+     pwm_hw_stop_safe(&s.pwm_running);
+     pin_to_hiz();
+     power_5v_set(false);
+     notification_message(s.notif, &sequence_reset_rgb);
+     furi_record_close(RECORD_NOTIFICATION);
  
-     gui_remove_view_port(s.gui, s.vp);          // Detach ViewPort from GUI
-     view_port_free(s.vp);                       // Free ViewPort
-     furi_message_queue_free(s.q);               // Delete input queue
-     furi_record_close(RECORD_GUI);              // Release GUI service
-     return 0;                                   // Normal termination code
+     gui_remove_view_port(s.gui, s.vp);
+     view_port_free(s.vp);
+     furi_message_queue_free(s.q);
+     furi_record_close(RECORD_GUI);
+     return 0;
  }
